@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="maven-antrun-" default="main">
+  <target name="main">
+    <copy file="/home/mahdi-malverdi/Public/projects/text-gateway-metabase-driver-correct/target/text-gateway-0.1.1-shaded.jar" tofile="/home/mahdi-malverdi/Public/projects/text-gateway-metabase-driver-correct/target/text-gateway.metabase-driver.jar" overwrite="true" />
+  </target>
+</project>

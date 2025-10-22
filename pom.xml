@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.example.metabase</groupId>
+  <artifactId>text-gateway</artifactId>
+  <version>0.1.1</version>
+  <name>Text Gateway Driver</name>
+  <description>Metabase plugin driver that POSTs a text to your HTTP service and renders rows as a table.</description>
+  <url>https://github.com/your-org/text-gateway-metabase-driver</url>
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+    </license>
+  </licenses>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>21</maven.compiler.release>
+  </properties>
+
+  <repositories>
+    <repository>
+      <id>clojars</id>
+      <url>https://repo.clojars.org/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>true</enabled></snapshots>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <!-- DO NOT include org.clojure:clojure or metabase-core here.
+         Metabase provides the Clojure runtime and its own classes. -->
+    <dependency>
+      <groupId>clj-http</groupId>
+      <artifactId>clj-http</artifactId>
+      <version>3.12.3</version>
+    </dependency>
+    <dependency>
+      <groupId>cheshire</groupId>
+      <artifactId>cheshire</artifactId>
+      <version>5.11.0</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <includes>
+          <include>**/*</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>src/main/clojure</directory>
+        <includes>
+          <include>**/*.clj</include>
+          <include>**/*.cljc</include>
+        </includes>
+      </resource>
+    </resources>
+
+    <plugins>
+      <!-- Package everything (our Clojure sources + resources + runtime deps) into a shaded jar.
+           We *exclude* org.clojure:clojure so we use the runtime from Metabase. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.3</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>shaded</shadedClassifierName>
+              <filters>
+                <filter>
+                  <artifact>org.clojure:clojure</artifact>
+                  <excludes>
+                    <exclude>**/*</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- After shading, copy & rename to *.metabase-driver.jar -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>rename-plugin-jar</id>
+            <phase>package</phase>
+            <configuration>
+              <target>
+                <copy file="${project.build.directory}/${project.artifactId}-${project.version}-shaded.jar"
+                      tofile="${project.build.directory}/${project.artifactId}.metabase-driver.jar"
+                      overwrite="true"/>
+              </target>
+            </configuration>
+            <goals><goal>run</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
