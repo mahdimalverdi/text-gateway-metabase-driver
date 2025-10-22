@@ -5,7 +5,7 @@ info:
 driver:
   name: text-gateway
   display-name: Text Gateway
-  lazy-load: true
+  lazy-load: false
   connection-properties:
     - name: base_url
       display-name: Base URL
