@@ -8,10 +8,13 @@
     :display_name "Result"
     :base_type :type/Text
     :effective_type :type/Text
+    :semantic_type :type/Text
     :database_type "text"
     :description "Echo of the submitted native query text."
     :field_ref [:field-literal "result" {:base-type :type/Text}]
-    :visibility_type :normal}])
+    :visibility_type :normal
+    :source :native
+    :remapped_from nil}])
 
 (defmethod driver/can-connect? :single-row
   [_ _details]
@@ -24,7 +27,7 @@
         result (if (seq query-text)
                  query-text
                  "No query text provided.")]
-    (respond {:columns column-metadata}
+    (respond {:cols column-metadata}
              [[result]])))
 
 (driver/register! :single-row)
