@@ -3,7 +3,8 @@
   (:require [clj-http.client :as http]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [metabase.driver :as driver]))
+            [metabase.driver :as driver]
+            [metabase.util.log :as log]))
 
 (def ^:private query-param-name "q")
 
@@ -102,6 +103,40 @@
 (defn- endpoint-url [query]
   (endpoint-from-query query))
 
+(defn- missing-endpoint-metadata []
+  {:columns [{:name "error"
+              :display_name "Error"
+              :base_type :type/Text
+              :effective_type :type/Text
+              :semantic_type :type/Text
+              :database_type "text"
+              :description "Error message from the driver."
+              :field_ref [:field-literal "error" {:base-type :type/Text}]
+              :visibility_type :normal
+              :source :native
+              :remapped_from nil}]
+   :cols [{:name "error"
+           :display_name "Error"
+           :base_type :type/Text
+           :effective_type :type/Text
+           :semantic_type :type/Text
+           :database_type "text"
+           :description "Error message from the driver."
+           :field_ref [:field-literal "error" {:base-type :type/Text}]
+           :visibility_type :normal
+           :source :native
+           :remapped_from nil}]})
+
+(defn- respond-missing-endpoint [respond query]
+  (log/warn "HTTP Echo driver could not locate an API endpoint in the query payload"
+            {:top-level-keys (-> query keys sort vec)
+             :database-keys (-> query :database keys sort vec)
+             :database-details (-> query :database :details keys sort vec)
+             :database-details-string (-> query :database (get "details") keys sort vec)
+             :query-keys (-> query :native keys sort vec)})
+  (respond (missing-endpoint-metadata)
+           [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."]]))
+
 (defmethod driver/can-connect? :http-echo
   [_ details]
   ;; Optionally verify that an endpoint has been provided.
@@ -114,29 +149,7 @@
         endpoint (endpoint-url query)]
     (cond
       (not endpoint)
-      (respond {:columns [{:name "error"
-                           :display_name "Error"
-                           :base_type :type/Text
-                           :effective_type :type/Text
-                           :semantic_type :type/Text
-                           :database_type "text"
-                           :description "Error message from the driver."
-                           :field_ref [:field-literal "error" {:base-type :type/Text}]
-                           :visibility_type :normal
-                           :source :native
-                           :remapped_from nil}]
-                       :cols [{:name "error"
-                               :display_name "Error"
-                               :base_type :type/Text
-                               :effective_type :type/Text
-                               :semantic_type :type/Text
-                               :database_type "text"
-                               :description "Error message from the driver."
-                               :field_ref [:field-literal "error" {:base-type :type/Text}]
-                               :visibility_type :normal
-                               :source :native
-                               :remapped_from nil}]}
-               [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."]])
+      (respond-missing-endpoint respond query)
 
       (not (seq query-text))
       (respond {:columns [{:name "error"
