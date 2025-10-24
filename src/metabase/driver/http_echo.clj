@@ -49,10 +49,12 @@
                            :description (str "Value returned for " col-name)
                            :field_ref [:field-literal col-name {:base-type :type/Text}]
                            :visibility_type :normal
-                           :source :native}))
+                           :source :native
+                           :remapped_from nil}))
                       entries)
         row (mapv (comp fmt-value val) entries)]
     {:columns columns
+     :cols columns
      :row row}))
 
 (defn- endpoint-from-query [query]
@@ -87,7 +89,19 @@
                            :description "Error message from the driver."
                            :field_ref [:field-literal "error" {:base-type :type/Text}]
                            :visibility_type :normal
-                           :source :native}]}
+                           :source :native
+                           :remapped_from nil}]
+                        :cols [{:name "error"
+                                :display_name "Error"
+                                :base_type :type/Text
+                                :effective_type :type/Text
+                                :semantic_type :type/Text
+                                :database_type "text"
+                                :description "Error message from the driver."
+                                :field_ref [:field-literal "error" {:base-type :type/Text}]
+                                :visibility_type :normal
+                                :source :native
+                                :remapped_from nil}]}
                [["No query text provided."]])
       (try
         (let [{:keys [status body]} (http/get endpoint {:query-params {query-param-name query-text}
@@ -95,8 +109,10 @@
                                                         :as :json
                                                         :throw-exceptions false})]
           (if (<= 200 status 299)
-            (let [{:keys [columns row]} (->columns-and-row body)]
-              (respond {:columns columns}
+            (let [{:keys [columns row]} (->columns-and-row body)
+                  metadata {:columns columns
+                            :cols columns}]
+              (respond metadata
                        [row]))
             (respond {:columns [{:name "error"
                                  :display_name "Error"
@@ -107,7 +123,19 @@
                                  :description "HTTP error returned while calling the external API."
                                  :field_ref [:field-literal "error" {:base-type :type/Text}]
                                  :visibility_type :normal
-                                 :source :native}]}
+                                 :source :native
+                                 :remapped_from nil}]
+                              :cols [{:name "error"
+                                      :display_name "Error"
+                                      :base_type :type/Text
+                                      :effective_type :type/Text
+                                      :semantic_type :type/Text
+                                      :database_type "text"
+                                      :description "HTTP error returned while calling the external API."
+                                      :field_ref [:field-literal "error" {:base-type :type/Text}]
+                                      :visibility_type :normal
+                                      :source :native
+                                      :remapped_from nil}]}
                      [[(format "HTTP %s calling %s" status endpoint)]])))
         (catch Exception e
           (respond {:columns [{:name "error"
@@ -119,7 +147,19 @@
                                :description "Exception thrown while calling the external API."
                                :field_ref [:field-literal "error" {:base-type :type/Text}]
                                :visibility_type :normal
-                               :source :native}]}
-                   [[(.getMessage e)]]))))))
+                               :source :native
+                               :remapped_from nil}]
+                            :cols [{:name "error"
+                                    :display_name "Error"
+                                    :base_type :type/Text
+                                    :effective_type :type/Text
+                                    :semantic_type :type/Text
+                                    :database_type "text"
+                                    :description "Exception thrown while calling the external API."
+                                    :field_ref [:field-literal "error" {:base-type :type/Text}]
+                                    :visibility_type :normal
+                                    :source :native
+                                    :remapped_from nil}]}
+                 [[(.getMessage e)]]))))))
 
 (driver/register! :http-echo)
