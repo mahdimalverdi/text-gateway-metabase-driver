@@ -88,23 +88,16 @@
      :cols columns
      :row row}))
 
-(defn- endpoint-from-details [details]
-  (when details
-    (or (:endpoint details)
-        (get details "endpoint")
-        (some-> details :details endpoint-from-details)
-        (some-> details (get "details") endpoint-from-details))))
+(defn- endpoint-from-any [value]
+  (cond
+    (map? value) (or (:endpoint value)
+                     (get value "endpoint")
+                     (some endpoint-from-any (vals value)))
+    (sequential? value) (some endpoint-from-any value)
+    :else nil))
 
 (defn- endpoint-from-query [query]
-  (some #(endpoint-from-details %)
-        [(get query :database_details)
-         (get query "database_details")
-         (some-> query :database :details)
-         (some-> query :database (get "details"))
-         (some-> query :context :database :details)
-         (some-> query :context :database (get "details"))
-         (get query :details)
-         (get query "details")]))
+  (endpoint-from-any query))
 
 (defn- endpoint-url [query]
   (endpoint-from-query query))
@@ -112,7 +105,7 @@
 (defmethod driver/can-connect? :http-echo
   [_ details]
   ;; Optionally verify that an endpoint has been provided.
-  (boolean (endpoint-from-details details)))
+  (boolean (endpoint-from-any details)))
 
 (defmethod driver/execute-reducible-query :http-echo
   [_ query _context respond]
