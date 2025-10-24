@@ -9,7 +9,9 @@
     :base_type :type/Text
     :effective_type :type/Text
     :database_type "text"
-    :description "Echo of the submitted native query text."}])
+    :description "Echo of the submitted native query text."
+    :field_ref [:field-literal "result" {:base-type :type/Text}]
+    :visibility_type :normal}])
 
 (defmethod driver/can-connect? :single-row
   [_ _details]
