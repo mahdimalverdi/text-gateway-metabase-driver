@@ -57,7 +57,7 @@
     (let [result (step [] value {})]
       (if (seq result)
         result
-        {[] value})))
+        {[] value}))))
 
 (defn- normalize-body [body]
   (->> (flatten-json body)
