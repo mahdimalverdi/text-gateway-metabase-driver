@@ -17,7 +17,7 @@
   [_ _details]
   true)
 
-(defmethod driver/execute-query :single-row
+(defmethod driver/execute-reducible-query :single-row
   [_ query _context respond]
   ;; Ignore the incoming query and return a single static row.
   (respond {:columns column-metadata
