@@ -6,5 +6,9 @@ info:
 driver:
   name: single-row
   display-name: Single Row Driver
+  lazy-load: true
   supported-options: []
   features: []
+init:
+  - step: load-namespace
+    namespace: metabase.driver.single-row
