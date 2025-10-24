@@ -5,7 +5,6 @@
             [clojure.string :as str]
             [metabase.driver :as driver]))
 
-(def ^:private default-endpoint "http://localhost:8080/api")
 (def ^:private query-param-name "q")
 
 (defn- key->str [k]
@@ -96,22 +95,46 @@
 
 (defn- endpoint-url [query]
   (or (endpoint-from-query query)
-      (System/getenv "HTTP_ECHO_API_ENDPOINT")
-      default-endpoint))
+      (System/getenv "HTTP_ECHO_API_ENDPOINT")))
 
 (defmethod driver/can-connect? :http-echo
   [_ details]
   ;; Optionally verify that an endpoint has been provided.
   (boolean (or (:endpoint details)
-               (System/getenv "HTTP_ECHO_API_ENDPOINT")
-               default-endpoint)))
+               (System/getenv "HTTP_ECHO_API_ENDPOINT"))))
 
 (defmethod driver/execute-reducible-query :http-echo
   [_ query _context respond]
   ;; Submit the incoming query text to the configured HTTP API and surface the JSON response.
   (let [query-text (some-> query :native :query str/trim)
         endpoint (endpoint-url query)]
-    (if-not (seq query-text)
+    (cond
+      (not endpoint)
+      (respond {:columns [{:name "error"
+                           :display_name "Error"
+                           :base_type :type/Text
+                           :effective_type :type/Text
+                           :semantic_type :type/Text
+                           :database_type "text"
+                           :description "Error message from the driver."
+                           :field_ref [:field-literal "error" {:base-type :type/Text}]
+                           :visibility_type :normal
+                           :source :native
+                           :remapped_from nil}]
+                        :cols [{:name "error"
+                                :display_name "Error"
+                                :base_type :type/Text
+                                :effective_type :type/Text
+                                :semantic_type :type/Text
+                                :database_type "text"
+                                :description "Error message from the driver."
+                                :field_ref [:field-literal "error" {:base-type :type/Text}]
+                                :visibility_type :normal
+                                :source :native
+                                :remapped_from nil}]}
+               [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details or set the HTTP_ECHO_API_ENDPOINT environment variable."]])
+
+      (not (seq query-text))
       (respond {:columns [{:name "error"
                            :display_name "Error"
                            :base_type :type/Text
@@ -135,6 +158,8 @@
                                 :source :native
                                 :remapped_from nil}]}
                [["No query text provided."]])
+
+      :else
       (try
         (let [{:keys [status body]} (http/get endpoint {:query-params {query-param-name query-text}
                                                         :accept :json
@@ -192,6 +217,6 @@
                                     :visibility_type :normal
                                     :source :native
                                     :remapped_from nil}]}
-                 [[(.getMessage e)]]))))))
+                 [[(.getMessage e)]])))))))
 
 (driver/register! :http-echo)
