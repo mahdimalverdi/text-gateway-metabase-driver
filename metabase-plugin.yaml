@@ -1,14 +1,21 @@
 info:
-  name: Single Row Driver
-  version: 0.1.0
-  description: Minimal Metabase driver plugin that returns a single static row.
-  driver: single-row
+  name: HTTP Echo Driver
+  version: 0.2.0
+  description: Metabase driver plugin that proxies query text to an HTTP API and returns the JSON payload.
+  driver: http-echo
 driver:
-  name: single-row
-  display-name: Single Row Driver
+  name: http-echo
+  display-name: HTTP Echo Driver
   lazy-load: true
+  connection-properties:
+    - name: endpoint
+      display-name: API endpoint
+      section: connection
+      placeholder: https://example.com/api
+      required: true
+      sensitive: false
   supported-options: []
   features: []
 init:
   - step: load-namespace
-    namespace: metabase.driver.single-row
+    namespace: metabase.driver.http-echo

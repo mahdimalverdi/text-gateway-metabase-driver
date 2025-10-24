@@ -1,15 +1,33 @@
-# Single Row Metabase Driver Plugin
+# HTTP Echo Metabase Driver Plugin
 
-This repository contains a deliberately simple Metabase plugin that registers a
-custom driver returning a single static row for any query.
+This repository contains a deliberately simple Metabase plugin that forwards the SQL editor text to an HTTP endpoint and
+returns the JSON payload as a single row in Metabase.
 
 ## Getting Started
 
 1. Adjust the metadata in `metabase-plugin.yaml` if you want to rebrand the driver.
-2. Add any required dependencies to `deps.edn` (for example, Metabase Core) before building.
-3. Review the implementation in `src/metabase/driver/single_row.clj`. The driver ignores incoming
-   queries and responds with one row containing a greeting message.
+2. Review `deps.edn` for the HTTP/JSON libraries that power the API request.
+3. Inspect the implementation in `src/metabase/driver/http_echo.clj`. The driver takes the native query text, sends it
+   to an HTTP endpoint as the `q` query parameter, and formats the JSON response into Metabase columns.
 4. Package the plugin as a JAR and place it in the `plugins/` directory of your Metabase instance.
+5. When adding the database in Metabase, supply the API URL in the connection form (the `endpoint` field). You can also
+   set a global default with the `HTTP_ECHO_API_ENDPOINT` environment variable (fallback is `http://localhost:8080/api`).
+
+### Mock API Server
+
+A small Bash script spins up a local JSON echo service so you can exercise the driver end-to-end:
+
+```bash
+./scripts/http-echo-mock-api.sh 8080
+```
+
+Requests to `http://localhost:8080/api?q=hello` return a JSON body containing the echoed text and its length. Leave the
+script running while you run queries from Metabase.
+
+### Kubernetes Pod Template
+
+To deploy the mock API in Kubernetes, apply `k8s/http-echo-mock-pod.yaml`. The manifest creates a pod in the `data-infra`
+namespace that exposes the same JSON echo service on port 8080.
 
 ### Working with the Driver Locally
 
@@ -29,10 +47,10 @@ in mind while developing:
 
 ### Building the JAR
 
-The repository includes a helper script that packages the plugin and writes the artifact to `dist/single-row-driver.jar`:
+The repository includes a helper script that packages the plugin and writes the artifact to `dist/http-echo-driver.jar`:
 
 ```bash
-./bin/build-driver.sh
+./bin/build-http-echo.sh
 ```
 
 The script stages the driver sources under `build/plugin/` before invoking the `jar` tool, so feel free to inspect that directory if you need to debug the build. The resulting JAR can be copied into the `plugins/` directory of your Metabase deployment.
@@ -43,8 +61,8 @@ If you prefer to run the packaging steps manually, follow the commands below:
 mkdir -p build/plugin dist
 cp metabase-plugin.yaml build/plugin/
 mkdir -p build/plugin/metabase/driver
-cp src/metabase/driver/single_row.clj build/plugin/metabase/driver/
-jar cf dist/single-row-driver.jar -C build/plugin .
+cp src/metabase/driver/http_echo.clj build/plugin/metabase/driver/
+jar cf dist/http-echo-driver.jar -C build/plugin .
 ```
 
 ### Using Metabase's build-drivers scripts
@@ -63,7 +81,7 @@ clojure -X:build:drivers:build/drivers :edition :ee
 ./bin/build-drivers.sh
 ```
 
-To build a single driver (such as this single-row driver) run:
+To build a single driver (such as this HTTP Echo driver) run:
 
 ```bash
 clojure -X:build:drivers:build/driver :driver :sqlserver

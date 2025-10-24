@@ -9,7 +9,7 @@ BUILD_ROOT="${REPO_ROOT}/build/plugin"
 DIST_ROOT="${REPO_ROOT}/dist"
 PLUGIN_META="${REPO_ROOT}/metabase-plugin.yaml"
 DRIVER_SRC="${REPO_ROOT}/src/metabase/driver"
-ARTIFACT_NAME="single-row-driver.jar"
+ARTIFACT_NAME="http-echo-driver.jar"
 
 rm -rf "${BUILD_ROOT}"
 mkdir -p "${BUILD_ROOT}/metabase/driver"
