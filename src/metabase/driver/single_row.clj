@@ -20,7 +20,7 @@
 (defmethod driver/execute-reducible-query :single-row
   [_ query _context respond]
   ;; Ignore the incoming query and return a single static row.
-  (respond {:columns column-metadata
-            :rows static-row}))
+  (respond {:columns column-metadata}
+           static-row))
 
 (driver/register! :single-row)
