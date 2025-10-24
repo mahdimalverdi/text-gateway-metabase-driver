@@ -16,7 +16,7 @@
 
 (defn- display-name [k]
   (-> (key->str k)
-      (str/replace #"[-_]+" " ")
+      (str/replace #"[._\[\]-]+" " ")
       (str/capitalize)))
 
 (defn- fmt-value [v]
@@ -26,12 +26,44 @@
     (nil? v) "null"
     :else (str v)))
 
-(defn- normalize-body [body]
+(defn- path->segment [segment]
   (cond
-    (map? body) body
-    (string? body) {:result body}
-    (or (sequential? body) (nil? body)) {:result (fmt-value body)}
-    :else {:result (str body)}))
+    (keyword? segment) (name segment)
+    (string? segment) segment
+    (int? segment) (str "[" segment "]")
+    :else (str segment)))
+
+(defn- path->col-name [path]
+  (if (seq path)
+    (reduce (fn [acc segment]
+              (let [seg-str (path->segment segment)]
+                (cond
+                  (str/starts-with? seg-str "[") (str acc seg-str)
+                  (empty? acc) seg-str
+                  :else (str acc "." seg-str))))
+            ""
+            path)
+    "result"))
+
+(defn- flatten-json [value]
+  (letfn [(step [path v acc]
+            (cond
+              (map? v) (reduce-kv (fn [a k val] (step (conj path k) val a)) acc v)
+              (sequential? v) (reduce (fn [a [idx val]]
+                                        (step (conj path idx) val a))
+                                      acc
+                                      (map-indexed vector v))
+              :else (assoc acc path v)))]
+    (let [result (step [] value {})]
+      (if (seq result)
+        result
+        {[] value})))
+
+(defn- normalize-body [body]
+  (->> (flatten-json body)
+       (map (fn [[path value]]
+              [(path->col-name path) value]))
+       (into {})))
 
 (defn- ->columns-and-row [body]
   (let [normalized (normalize-body body)
