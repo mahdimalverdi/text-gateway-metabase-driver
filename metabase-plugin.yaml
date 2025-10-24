@@ -1,0 +1,10 @@
+info:
+  name: Single Row Driver
+  version: 0.1.0
+  description: Minimal Metabase driver plugin that returns a single static row.
+  driver: single-row
+driver:
+  name: single-row
+  display-name: Single Row Driver
+  supported-options: []
+  features: []
