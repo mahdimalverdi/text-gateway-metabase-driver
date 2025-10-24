@@ -2,8 +2,6 @@
   "A minimal Metabase driver that always returns a single static row."
   (:require [metabase.driver :as driver]))
 
-(driver/register! :single-row)
-
 (def ^:private column-metadata
   [{:name "message"
     :display_name "Message"
@@ -24,3 +22,5 @@
   ;; Ignore the incoming query and return a single static row.
   (respond {:columns column-metadata
             :rows static-row}))
+
+(driver/register! :single-row)
