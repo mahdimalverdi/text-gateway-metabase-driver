@@ -1,6 +1,6 @@
 (ns metabase.driver.http-echo
-  "A Metabase driver that sends the submitted query text to an HTTP API (GET or POST)
-   and returns the JSON response as a tabular result."
+  "A lightweight Metabase driver that sends the submitted query text to an HTTP API
+   (GET or POST) and returns the JSON response as a table."
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
             [clojure.string :as str]
@@ -8,7 +8,7 @@
             [metabase.util.log :as log]))
 
 ;; -------------------------------
-;; Shared constants and utilities
+;; Utilities
 ;; -------------------------------
 
 (def ^:private query-param-name "q")
@@ -23,21 +23,17 @@
    :description "Error message from the driver."
    :field_ref [:field-literal "error" {:base-type :type/Text}]
    :visibility_type :normal
-   :source :native
-   :remapped_from nil})
+   :source :native})
 
-(def ^:private error-metadata
-  {:columns [error-column]
-   :cols [error-column]})
+(def ^:private error-metadata {:columns [error-column] :cols [error-column]})
 
-(defn- respond-error [respond message]
-  (respond error-metadata [[message]]))
+(defn- respond-error [respond msg]
+  (respond error-metadata [[msg]]))
 
 (defn- key->str [k]
-  (cond
-    (keyword? k) (name k)
-    (string? k) k
-    :else (str k)))
+  (cond (keyword? k) (name k)
+        (string? k) k
+        :else (str k)))
 
 (defn- display-name [k]
   (-> (key->str k)
@@ -46,138 +42,55 @@
 
 (defn- fmt-value [v]
   (cond
-    (string? v) v
-    (number? v) v
-    (boolean? v) (str v)
-    (or (map? v) (sequential? v)) (json/generate-string v)
-    (nil? v) nil
+    (or (string? v) (number? v) (boolean? v)) (str v)
+    (map? v) (json/generate-string v)
+    (sequential? v) (json/generate-string v)
     :else (str v)))
-
-(defn- path->segment [segment]
-  (cond
-    (keyword? segment) (name segment)
-    (string? segment) segment
-    (int? segment) (str "[" segment "]")
-    :else (str segment)))
-
-(defn- path->col-name [path]
-  (if (seq path)
-    (reduce (fn [acc segment]
-              (let [seg-str (path->segment segment)]
-                (cond
-                  (str/starts-with? seg-str "[") (str acc seg-str)
-                  (empty? acc) seg-str
-                  :else (str acc "." seg-str))))
-            ""
-            path)
-    "result"))
 
 (defn- flatten-json [value]
   (letfn [(step [path v acc]
             (cond
               (map? v) (reduce-kv (fn [a k val] (step (conj path k) val a)) acc v)
-              (sequential? v) (reduce (fn [a [idx val]]
-                                        (step (conj path idx) val a))
-                                      acc
-                                      (map-indexed vector v))
+              (sequential? v) (reduce (fn [a [idx val]] (step (conj path idx) val a))
+                                      acc (map-indexed vector v))
               :else (assoc acc path v)))]
-    (let [result (step [] value {})]
-      (if (seq result)
-        result
-        {[] value}))))
+    (let [res (step [] value {})]
+      (if (seq res) res {[] value}))))
 
-(defn- normalize-body [body]
-  (->> (flatten-json body)
-       (map (fn [[path value]]
-              [(path->col-name path) value]))
-       (into {})))
+(defn- path->col-name [path]
+  (if (seq path)
+    (reduce (fn [acc s]
+              (let [seg (cond
+                          (keyword? s) (name s)
+                          (int? s) (str "[" s "]")
+                          :else (str s))]
+                (if (str/starts-with? seg "[")
+                  (str acc seg)
+                  (if (empty? acc) seg (str acc "." seg)))))
+            "" path)
+    "result"))
 
-(defn- ->columns-and-row [body]
-  (let [normalized (normalize-body body)
-        entries (->> normalized seq (sort-by (comp key->str key)))
-        columns (mapv (fn [[k _]]
-                        (let [col-name (key->str k)]
-                          {:name col-name
-                           :display_name (display-name k)
-                           :base_type :type/Text
-                           :effective_type :type/Text
-                           :semantic_type :type/Text
-                           :database_type "text"
-                           :description (str "Value returned for " col-name)
-                           :field_ref [:field-literal col-name {:base-type :type/Text}]
-                           :visibility_type :normal
-                           :source :native
-                           :remapped_from nil}))
-                      entries)
-        row (mapv (comp fmt-value val) entries)]
-    {:columns columns :cols columns :row row}))
-
-(defn- ->rows-and-columns [body]
-  (if (sequential? body)
-    (let [rows (map ->columns-and-row body)
-          first-cols (:columns (first rows))
-          all-rows (map :row rows)]
-      {:columns first-cols
-       :cols first-cols
-       :rows all-rows})
-    (let [{:keys [columns cols row]} (->columns-and-row body)]
-      {:columns columns
-       :cols cols
-       :rows [row]})))
+(defn- ->columns-and-rows [body]
+  (let [rows (if (sequential? body) body [body])]
+    (if (seq rows)
+      (let [flat-rows (map #(into {} (map (fn [[p v]] [(path->col-name p) v])
+                                          (flatten-json %)))
+                           rows)
+            cols (->> (apply merge flat-rows)
+                      keys
+                      sort
+                      (mapv (fn [k]
+                              {:name k
+                               :display_name (display-name k)
+                               :base_type :type/Text
+                               :database_type "text"})))]
+        {:columns cols
+         :cols cols
+         :rows (mapv (fn [r] (mapv #(fmt-value (get r (:name %))) cols)) flat-rows)})
+      {:columns [] :cols [] :rows []})))
 
 ;; -------------------------------
-;; Endpoint extraction and helpers
-;; -------------------------------
-
-(defn- endpoint-from-any [value]
-  (cond
-    (map? value) (or (:endpoint value)
-                     (get value "endpoint")
-                     (some endpoint-from-any (vals value)))
-    (sequential? value) (some endpoint-from-any value)
-    :else nil))
-
-
-(defn- connection-detail
-  "Read a connection detail from Metabase context. Optionally supply a default."
-  [context key & [default]]
-  (or (some-> context :database :details key)
-      default))
-
-(defn- connection-endpoint [context]
-  (connection-detail context :endpoint))
-
-(defn- connection-method [context]
-  (-> (connection-detail context :method "GET")
-      (str/lower-case)))
-
-(defn- endpoint-url [_query context]
-  ;; Only read from connection properties in context
-  (connection-endpoint context))
-
-;; Method comes from connection properties
-;; (kept as separate helper above: `connection-method`).
-
-(defn- sortable-keys [value]
-  (when (map? value)
-    (-> value keys sort vec)))
-
-(defn- respond-missing-endpoint [respond query context]
-  (let [database (when (map? (:database query)) (:database query))]
-    (log/warn "HTTP Echo driver could not locate an API endpoint"
-              {:query-top-level-keys (sortable-keys query)
-               :query-database-keys (sortable-keys database)
-               :query-database-details (some-> database :details sortable-keys)
-               :query-database-details-string (some-> database (get "details") sortable-keys)
-               :query-native-keys (some-> query :native sortable-keys)
-               :context-keys (sortable-keys context)
-               :context-database-keys (some-> context :database sortable-keys)
-               :context-details-keys (some-> context :details sortable-keys)
-               :context-db-details-keys (some-> context :database :details sortable-keys)}))
-  (respond-error respond "No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."))
-
-;; -------------------------------
-;; Metabase Driver Implementations
+;; Connection handling
 ;; -------------------------------
 
 (defmethod driver/connection-properties :http-echo
@@ -186,53 +99,51 @@
     :display-name "API Endpoint"
     :placeholder "https://example.com/api"
     :required true
-    :sensitive false
     :section "connection"
-    :description "Base URL of the target HTTP API that will receive the query text."}
+    :description "Base URL of the HTTP API to send queries to."}
    {:name "method"
     :display-name "HTTP Method"
     :placeholder "GET"
-    :required false
     :default "GET"
     :options ["GET" "POST"]
     :section "connection"
-    :description "HTTP method used for the request. Defaults to GET."}])
+    :description "HTTP method to use (GET or POST)."}])
 
 (defmethod driver/can-connect? :http-echo
   [_ details]
-  (boolean (endpoint-from-any details)))
+  (boolean (:endpoint details)))
+
+;; -------------------------------
+;; Query Execution
+;; -------------------------------
 
 (defmethod driver/execute-reducible-query :http-echo
   [_ query context respond]
   (let [query-text (some-> query :native :query str/trim)
-        endpoint (endpoint-url query context)
-        http-method (connection-method context)]
+        details (-> context :database :details)
+        endpoint (:endpoint details)
+        method (-> (get details :method "GET") str/lower-case)]
     (cond
       (not endpoint)
-      (respond-missing-endpoint respond query context)
+      (do (log/warn "HTTP Echo: no endpoint configured." {:details details})
+          (respond-error respond "Missing endpoint in connection details."))
 
       (not (seq query-text))
       (respond-error respond "No query text provided.")
 
       :else
       (try
-        (let [request-opts {:accept :json
-                            :as :json
-                            :throw-exceptions false}
-              response (case http-method
-                         "post" (http/post endpoint (assoc request-opts :form-params {query-param-name query-text}))
-                         (http/get  endpoint (assoc request-opts :query-params {query-param-name query-text})))
-              {:keys [status body]} response]
+        (let [opts {:accept :json :as :json :throw-exceptions false}
+              resp (case method
+                     "post" (http/post endpoint (assoc opts :form-params {query-param-name query-text}))
+                     (http/get  endpoint (assoc opts :query-params {query-param-name query-text})))
+              {:keys [status body]} resp]
           (if (<= 200 status 299)
-            (let [{:keys [columns cols rows]} (->rows-and-columns body)
-                  metadata {:columns columns :cols cols}]
-              (respond metadata rows))
-            (do
-              (log/warn "HTTP Echo driver API call returned non-2xx status"
-                        {:endpoint endpoint :status status})
-              (respond-error respond (format "HTTP %s calling %s" status endpoint)))))
+            (let [{:keys [columns rows]} (->columns-and-rows body)]
+              (respond {:columns columns :cols columns} rows))
+            (respond-error respond (format "HTTP %s calling %s" status endpoint))))
         (catch Exception e
-          (log/error e "Exception in HTTP Echo driver")
+          (log/error e "HTTP Echo driver failed request")
           (respond-error respond (.getMessage e)))))))
 
 ;; -------------------------------
@@ -244,12 +155,9 @@
     (try
       (driver/register! :http-echo)
       (catch IllegalArgumentException e
-        (if (some-> e .getMessage (str/includes? "already registered"))
+        (if (re-find #"already registered" (.getMessage e))
           (log/info "HTTP Echo driver already registered; continuing.")
           (throw e))))))
 
-(defn init!
-  []
-  (force register-driver-once))
-
+(defn init! [] (force register-driver-once))
 (force register-driver-once)
