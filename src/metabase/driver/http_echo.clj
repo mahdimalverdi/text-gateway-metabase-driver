@@ -138,7 +138,7 @@
                :database-keys (sortable-keys database)
                :database-details (some-> database :details sortable-keys)
                :database-details-string (some-> database (get "details") sortable-keys)
-               :query-keys (some-> query :native sortable-keys)})))
+               :query-keys (some-> query :native sortable-keys)}))
   (respond (missing-endpoint-metadata)
            [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."]]))
 
@@ -239,6 +239,6 @@
                                     :visibility_type :normal
                                     :source :native
                                     :remapped_from nil}]}
-                   [[(.getMessage e)]])))))
+                   [[(.getMessage e)]]))))))
 
 (driver/register! :http-echo)
