@@ -6,7 +6,7 @@ info:
 driver:
   name: http-echo
   display-name: HTTP Echo Driver
-  lazy-load: true
+  lazy-load: false
   connection-properties:
     - name: endpoint
       display-name: API endpoint
@@ -19,3 +19,6 @@ driver:
 init:
   - step: load-namespace
     namespace: metabase.driver.http-echo
+  - step: call-function
+    namespace: metabase.driver.http-echo
+    function: init!
