@@ -1,24 +1,38 @@
 info:
   name: HTTP Echo Driver
   version: 0.2.0
-  description: Metabase driver plugin that proxies query text to an HTTP API and returns the JSON payload.
+  description: >
+    A Metabase driver plugin that sends incoming query text to a configurable HTTP API endpoint
+    (via GET or POST) and returns the JSON response as a Metabase result table.
   driver: http-echo
+
 driver:
   name: http-echo
   display-name: HTTP Echo Driver
   lazy-load: false
   connection-properties:
     - name: endpoint
-      display-name: API endpoint
+      display-name: API Endpoint
       section: connection
       placeholder: https://example.com/api
       required: true
       sensitive: false
+      description: Base URL of the target HTTP API that will receive the query text.
+    - name: method
+      display-name: HTTP Method
+      section: connection
+      placeholder: GET
+      required: false
+      default: GET
+      options:
+        - GET
+        - POST
+      description: HTTP method used for the request. Defaults to GET.
   supported-options: []
-  features: []
+  features:
+    - can-connect
+    - query-execution
+
 init:
   - step: load-namespace
     namespace: metabase.driver.http-echo
-  - step: call-function
-    namespace: metabase.driver.http-echo
-    function: init!

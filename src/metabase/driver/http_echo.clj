@@ -251,11 +251,17 @@
                                     :remapped_from nil}]}
                    [[(.getMessage e)]]))))))
 
+(defonce ^:private register-driver-once
+  (delay
+    (try
+      (driver/register! :http-echo)
+      (catch IllegalArgumentException e
+        (if (some-> e .getMessage (str/includes? "already registered"))
+          (log/info "HTTP Echo driver already registered; continuing.")
+          (throw e))))))
+
 (defn init!
   []
-  (try
-    (driver/register! :http-echo)
-    (catch IllegalArgumentException e
-      (if (some-> e .getMessage (str/includes? "already registered"))
-        (log/info "HTTP Echo driver already registered; continuing.")
-        (throw e)))))
+  (force register-driver-once))
+
+(force register-driver-once)
