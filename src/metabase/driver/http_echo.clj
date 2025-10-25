@@ -1,7 +1,7 @@
 (ns metabase.driver.http-echo
   "A Metabase driver that sends the submitted query text to an HTTP API and returns the JSON response."
-  (:require [clj-http.client :as http]
-            [cheshire.core :as json]
+  (:require [cheshire.core :as json]
+            [clj-http.client :as http]
             [clojure.string :as str]
             [metabase.driver :as driver]
             [metabase.util.log :as log]))
@@ -97,11 +97,8 @@
     (sequential? value) (some endpoint-from-any value)
     :else nil))
 
-(defn- endpoint-from-query [query]
-  (endpoint-from-any query))
-
 (defn- endpoint-url [query]
-  (endpoint-from-query query))
+  (endpoint-from-any query))
 
 (defn- missing-endpoint-metadata []
   {:columns [{:name "error"
@@ -127,13 +124,20 @@
            :source :native
            :remapped_from nil}]})
 
+(defn- sortable-keys
+  "Return a sorted vector of the keys of `value` when it is a map; otherwise return nil. We guard
+  against non-map values (such as database IDs) to avoid seq-related exceptions in logging."
+  [value]
+  (when (map? value)
+    (-> value keys sort vec)))
+
 (defn- respond-missing-endpoint [respond query]
   (log/warn "HTTP Echo driver could not locate an API endpoint in the query payload"
-            {:top-level-keys (-> query keys sort vec)
-             :database-keys (-> query :database keys sort vec)
-             :database-details (-> query :database :details keys sort vec)
-             :database-details-string (-> query :database (get "details") keys sort vec)
-             :query-keys (-> query :native keys sort vec)})
+            {:top-level-keys (sortable-keys query)
+             :database-keys (-> query :database sortable-keys)
+             :database-details (-> query :database :details sortable-keys)
+             :database-details-string (-> query :database (get "details") sortable-keys)
+             :query-keys (-> query :native sortable-keys)})
   (respond (missing-endpoint-metadata)
            [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."]]))
 
@@ -178,16 +182,16 @@
 
       :else
       (try
-        (let [{:keys [status body]} (http/get endpoint {:query-params {query-param-name query-text}
-                                                        :accept :json
-                                                        :as :json
-                                                        :throw-exceptions false})]
+        (let [{:keys [status body]}
+              (http/get endpoint {:query-params {query-param-name query-text}
+                                  :accept :json
+                                  :as :json
+                                  :throw-exceptions false})]
           (if (<= 200 status 299)
             (let [{:keys [columns row]} (->columns-and-row body)
                   metadata {:columns columns
                             :cols columns}]
-              (respond metadata
-                       [row]))
+              (respond metadata [row]))
             (respond {:columns [{:name "error"
                                  :display_name "Error"
                                  :base_type :type/Text
@@ -234,6 +238,6 @@
                                     :visibility_type :normal
                                     :source :native
                                     :remapped_from nil}]}
-                 [[(.getMessage e)]])))))))
+                   [[(.getMessage e)]])))))
 
 (driver/register! :http-echo)
