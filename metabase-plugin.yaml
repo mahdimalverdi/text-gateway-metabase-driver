@@ -6,7 +6,7 @@ info:
 driver:
   name: http-echo
   display-name: HTTP Echo Driver
-  lazy-load: true
+  lazy-load: false
   connection-properties:
     - name: endpoint
       display-name: API endpoint
