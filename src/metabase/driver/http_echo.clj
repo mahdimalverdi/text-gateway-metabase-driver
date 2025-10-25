@@ -100,8 +100,12 @@
     (sequential? value) (some find-endpoint value)
     :else nil))
 
-(defn- endpoint-url [query]
-  (find-endpoint query))
+(defn- endpoint-url [query context]
+  (or (find-endpoint query)
+      (find-endpoint (:database context))
+      (find-endpoint (get context :details))
+      (find-endpoint (-> context :database :details))
+      (find-endpoint (-> context :database (get "details")))))
 
 (def ^:private error-metadata
   {:columns [{:name "error"
@@ -165,9 +169,9 @@
   (boolean (find-endpoint details)))
 
 (defmethod driver/execute-reducible-query :http-echo
-  [_ query _context respond]
+  [_ query context respond]
   (let [query-text (some-> query :native :query str/trim)
-        endpoint (endpoint-url query)]
+        endpoint (endpoint-url query context)]
     (cond
       (nil? endpoint)
       (respond-missing-endpoint respond query)
