@@ -1,12 +1,37 @@
 (ns metabase.driver.http-echo
-  "A Metabase driver that sends the submitted query text to an HTTP API and returns the JSON response."
+  "A Metabase driver that sends the submitted query text to an HTTP API (GET or POST)
+   and returns the JSON response as a tabular result."
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
             [clojure.string :as str]
             [metabase.driver :as driver]
             [metabase.util.log :as log]))
 
+;; -------------------------------
+;; Shared constants and utilities
+;; -------------------------------
+
 (def ^:private query-param-name "q")
+
+(def ^:private error-column
+  {:name "error"
+   :display_name "Error"
+   :base_type :type/Text
+   :effective_type :type/Text
+   :semantic_type :type/Text
+   :database_type "text"
+   :description "Error message from the driver."
+   :field_ref [:field-literal "error" {:base-type :type/Text}]
+   :visibility_type :normal
+   :source :native
+   :remapped_from nil})
+
+(def ^:private error-metadata
+  {:columns [error-column]
+   :cols [error-column]})
+
+(defn- respond-error [respond message]
+  (respond error-metadata [[message]]))
 
 (defn- key->str [k]
   (cond
@@ -22,8 +47,10 @@
 (defn- fmt-value [v]
   (cond
     (string? v) v
+    (number? v) v
+    (boolean? v) (str v)
     (or (map? v) (sequential? v)) (json/generate-string v)
-    (nil? v) "null"
+    (nil? v) nil
     :else (str v)))
 
 (defn- path->segment [segment]
@@ -67,9 +94,7 @@
 
 (defn- ->columns-and-row [body]
   (let [normalized (normalize-body body)
-        entries (->> normalized
-                     seq
-                     (sort-by (comp key->str key)))
+        entries (->> normalized seq (sort-by (comp key->str key)))
         columns (mapv (fn [[k _]]
                         (let [col-name (key->str k)]
                           {:name col-name
@@ -85,9 +110,24 @@
                            :remapped_from nil}))
                       entries)
         row (mapv (comp fmt-value val) entries)]
-    {:columns columns
-     :cols columns
-     :row row}))
+    {:columns columns :cols columns :row row}))
+
+(defn- ->rows-and-columns [body]
+  (if (sequential? body)
+    (let [rows (map ->columns-and-row body)
+          first-cols (:columns (first rows))
+          all-rows (map :row rows)]
+      {:columns first-cols
+       :cols first-cols
+       :rows all-rows})
+    (let [{:keys [columns cols row]} (->columns-and-row body)]
+      {:columns columns
+       :cols cols
+       :rows [row]})))
+
+;; -------------------------------
+;; Endpoint extraction and helpers
+;; -------------------------------
 
 (defn- endpoint-from-any [value]
   (cond
@@ -110,146 +150,83 @@
                     (get context "database")]]
     (some endpoint-from-any candidates)))
 
-(defn- missing-endpoint-metadata []
-  {:columns [{:name "error"
-              :display_name "Error"
-              :base_type :type/Text
-              :effective_type :type/Text
-              :semantic_type :type/Text
-              :database_type "text"
-              :description "Error message from the driver."
-              :field_ref [:field-literal "error" {:base-type :type/Text}]
-              :visibility_type :normal
-              :source :native
-              :remapped_from nil}]
-   :cols [{:name "error"
-           :display_name "Error"
-           :base_type :type/Text
-           :effective_type :type/Text
-           :semantic_type :type/Text
-           :database_type "text"
-           :description "Error message from the driver."
-           :field_ref [:field-literal "error" {:base-type :type/Text}]
-           :visibility_type :normal
-           :source :native
-           :remapped_from nil}]})
-
-(defn- sortable-keys
-  "Return a sorted vector of the keys of `value` when it is a map; otherwise return nil. We guard
-  against non-map values (such as database IDs) to avoid seq-related exceptions in logging."
-  [value]
+(defn- sortable-keys [value]
   (when (map? value)
     (-> value keys sort vec)))
 
 (defn- respond-missing-endpoint [respond query]
   (let [database (when (map? (:database query)) (:database query))]
-    (log/warn "HTTP Echo driver could not locate an API endpoint in the query payload"
+    (log/warn "HTTP Echo driver could not locate an API endpoint"
               {:top-level-keys (sortable-keys query)
                :database-keys (sortable-keys database)
                :database-details (some-> database :details sortable-keys)
                :database-details-string (some-> database (get "details") sortable-keys)
                :query-keys (some-> query :native sortable-keys)}))
-  (respond (missing-endpoint-metadata)
-           [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."]]))
+  (respond-error respond "No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."))
+
+;; -------------------------------
+;; Metabase Driver Implementations
+;; -------------------------------
+
+(defmethod driver/connection-properties :http-echo
+  [_]
+  [{:name "endpoint"
+    :display-name "API Endpoint"
+    :placeholder "https://example.com/api"
+    :required true
+    :sensitive false
+    :section "connection"
+    :description "Base URL of the target HTTP API that will receive the query text."}
+   {:name "method"
+    :display-name "HTTP Method"
+    :placeholder "GET"
+    :required false
+    :default "GET"
+    :options ["GET" "POST"]
+    :section "connection"
+    :description "HTTP method used for the request. Defaults to GET."}])
 
 (defmethod driver/can-connect? :http-echo
   [_ details]
-  ;; Optionally verify that an endpoint has been provided.
   (boolean (endpoint-from-any details)))
 
 (defmethod driver/execute-reducible-query :http-echo
   [_ query context respond]
-  ;; Submit the incoming query text to the configured HTTP API and surface the JSON response.
   (let [query-text (some-> query :native :query str/trim)
-        endpoint (endpoint-url query context)]
+        endpoint (endpoint-url query context)
+        http-method (or (some-> context :database :details :method str/lower-case)
+                        "get")]
     (cond
       (not endpoint)
       (respond-missing-endpoint respond query)
 
       (not (seq query-text))
-      (respond {:columns [{:name "error"
-                           :display_name "Error"
-                           :base_type :type/Text
-                           :effective_type :type/Text
-                           :semantic_type :type/Text
-                           :database_type "text"
-                           :description "Error message from the driver."
-                           :field_ref [:field-literal "error" {:base-type :type/Text}]
-                           :visibility_type :normal
-                           :source :native
-                           :remapped_from nil}]
-                        :cols [{:name "error"
-                                :display_name "Error"
-                                :base_type :type/Text
-                                :effective_type :type/Text
-                                :semantic_type :type/Text
-                                :database_type "text"
-                                :description "Error message from the driver."
-                                :field_ref [:field-literal "error" {:base-type :type/Text}]
-                                :visibility_type :normal
-                                :source :native
-                                :remapped_from nil}]}
-               [["No query text provided."]])
+      (respond-error respond "No query text provided.")
 
       :else
       (try
-        (let [{:keys [status body]}
-              (http/get endpoint {:query-params {query-param-name query-text}
-                                  :accept :json
-                                  :as :json
-                                  :throw-exceptions false})]
+        (let [request-opts {:accept :json
+                            :as :json
+                            :throw-exceptions false}
+              response (case http-method
+                         "post" (http/post endpoint (assoc request-opts :form-params {query-param-name query-text}))
+                         (http/get  endpoint (assoc request-opts :query-params {query-param-name query-text})))
+              {:keys [status body]} response]
           (if (<= 200 status 299)
-            (let [{:keys [columns row]} (->columns-and-row body)
-                  metadata {:columns columns
-                            :cols columns}]
-              (respond metadata [row]))
-            (respond {:columns [{:name "error"
-                                 :display_name "Error"
-                                 :base_type :type/Text
-                                 :effective_type :type/Text
-                                 :semantic_type :type/Text
-                                 :database_type "text"
-                                 :description "HTTP error returned while calling the external API."
-                                 :field_ref [:field-literal "error" {:base-type :type/Text}]
-                                 :visibility_type :normal
-                                 :source :native
-                                 :remapped_from nil}]
-                              :cols [{:name "error"
-                                      :display_name "Error"
-                                      :base_type :type/Text
-                                      :effective_type :type/Text
-                                      :semantic_type :type/Text
-                                      :database_type "text"
-                                      :description "HTTP error returned while calling the external API."
-                                      :field_ref [:field-literal "error" {:base-type :type/Text}]
-                                      :visibility_type :normal
-                                      :source :native
-                                      :remapped_from nil}]}
-                     [[(format "HTTP %s calling %s" status endpoint)]])))
+            (let [{:keys [columns cols rows]} (->rows-and-columns body)
+                  metadata {:columns columns :cols cols}]
+              (respond metadata rows))
+            (do
+              (log/warn "HTTP Echo driver API call returned non-2xx status"
+                        {:endpoint endpoint :status status})
+              (respond-error respond (format "HTTP %s calling %s" status endpoint)))))
         (catch Exception e
-          (respond {:columns [{:name "error"
-                               :display_name "Error"
-                               :base_type :type/Text
-                               :effective_type :type/Text
-                               :semantic_type :type/Text
-                               :database_type "text"
-                               :description "Exception thrown while calling the external API."
-                               :field_ref [:field-literal "error" {:base-type :type/Text}]
-                               :visibility_type :normal
-                               :source :native
-                               :remapped_from nil}]
-                            :cols [{:name "error"
-                                    :display_name "Error"
-                                    :base_type :type/Text
-                                    :effective_type :type/Text
-                                    :semantic_type :type/Text
-                                    :database_type "text"
-                                    :description "Exception thrown while calling the external API."
-                                    :field_ref [:field-literal "error" {:base-type :type/Text}]
-                                    :visibility_type :normal
-                                    :source :native
-                                    :remapped_from nil}]}
-                   [[(.getMessage e)]]))))))
+          (log/error e "Exception in HTTP Echo driver")
+          (respond-error respond (.getMessage e)))))))
+
+;; -------------------------------
+;; Driver registration
+;; -------------------------------
 
 (defonce ^:private register-driver-once
   (delay
