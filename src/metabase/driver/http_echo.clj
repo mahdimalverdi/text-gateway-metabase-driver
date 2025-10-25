@@ -137,8 +137,15 @@
     (sequential? value) (some endpoint-from-any value)
     :else nil))
 
+(defn- env-endpoint []
+  (or (System/getenv "MB_HTTP_ECHO_ENDPOINT")
+      (System/getProperty "mb.http.echo.endpoint")))
+
 (defn- endpoint-url [query context]
   (let [candidates [query
+                    (:info query)
+                    (-> query :info :database)
+                    (-> query :info :details)
                     context
                     (:database context)
                     (:details context)
@@ -147,21 +154,26 @@
                     (-> context :database :details)
                     (-> context :database (get "details"))
                     (get context :database)
-                    (get context "database")]]
+                    (get context "database")
+                    {:endpoint (env-endpoint)}]]
     (some endpoint-from-any candidates)))
 
 (defn- sortable-keys [value]
   (when (map? value)
     (-> value keys sort vec)))
 
-(defn- respond-missing-endpoint [respond query]
+(defn- respond-missing-endpoint [respond query context]
   (let [database (when (map? (:database query)) (:database query))]
     (log/warn "HTTP Echo driver could not locate an API endpoint"
-              {:top-level-keys (sortable-keys query)
-               :database-keys (sortable-keys database)
-               :database-details (some-> database :details sortable-keys)
-               :database-details-string (some-> database (get "details") sortable-keys)
-               :query-keys (some-> query :native sortable-keys)}))
+              {:query-top-level-keys (sortable-keys query)
+               :query-database-keys (sortable-keys database)
+               :query-database-details (some-> database :details sortable-keys)
+               :query-database-details-string (some-> database (get "details") sortable-keys)
+               :query-native-keys (some-> query :native sortable-keys)
+               :context-keys (sortable-keys context)
+               :context-database-keys (some-> context :database sortable-keys)
+               :context-details-keys (some-> context :details sortable-keys)
+               :context-db-details-keys (some-> context :database :details sortable-keys)}))
   (respond-error respond "No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."))
 
 ;; -------------------------------
@@ -198,7 +210,7 @@
                         "get")]
     (cond
       (not endpoint)
-      (respond-missing-endpoint respond query)
+      (respond-missing-endpoint respond query context)
 
       (not (seq query-text))
       (respond-error respond "No query text provided.")
