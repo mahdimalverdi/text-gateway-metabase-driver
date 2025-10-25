@@ -137,26 +137,26 @@
     (sequential? value) (some endpoint-from-any value)
     :else nil))
 
-(defn- env-endpoint []
-  (or (System/getenv "MB_HTTP_ECHO_ENDPOINT")
-      (System/getProperty "mb.http.echo.endpoint")))
 
-(defn- endpoint-url [query context]
-  (let [candidates [query
-                    (:info query)
-                    (-> query :info :database)
-                    (-> query :info :details)
-                    context
-                    (:database context)
-                    (:details context)
-                    (get context :details)
-                    (get context "details")
-                    (-> context :database :details)
-                    (-> context :database (get "details"))
-                    (get context :database)
-                    (get context "database")
-                    {:endpoint (env-endpoint)}]]
-    (some endpoint-from-any candidates)))
+(defn- connection-detail
+  "Read a connection detail from Metabase context. Optionally supply a default."
+  [context key & [default]]
+  (or (some-> context :database :details key)
+      default))
+
+(defn- connection-endpoint [context]
+  (connection-detail context :endpoint))
+
+(defn- connection-method [context]
+  (-> (connection-detail context :method "GET")
+      (str/lower-case)))
+
+(defn- endpoint-url [_query context]
+  ;; Only read from connection properties in context
+  (connection-endpoint context))
+
+;; Method comes from connection properties
+;; (kept as separate helper above: `connection-method`).
 
 (defn- sortable-keys [value]
   (when (map? value)
@@ -206,8 +206,7 @@
   [_ query context respond]
   (let [query-text (some-> query :native :query str/trim)
         endpoint (endpoint-url query context)
-        http-method (or (some-> context :database :details :method str/lower-case)
-                        "get")]
+        http-method (connection-method context)]
     (cond
       (not endpoint)
       (respond-missing-endpoint respond query context)
