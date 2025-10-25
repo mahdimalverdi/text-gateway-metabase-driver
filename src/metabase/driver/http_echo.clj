@@ -90,6 +90,70 @@
       {:columns [] :cols [] :rows []})))
 
 ;; -------------------------------
+;; Connection detail helpers
+;; -------------------------------
+
+(defn- key-variants [k]
+  (cond
+    (keyword? k) [k (name k)]
+    (string? k) [k (keyword k)]
+    (symbol? k) [k (name k)]
+    :else [k]))
+
+(defn- map-fetch [m k]
+  (when (map? m)
+    (some #(when (contains? m %) (get m %))
+          (key-variants k))))
+
+(defn- path-value [m ks]
+  (loop [cur m
+         [k & more] ks]
+    (cond
+      (nil? k) cur
+      (nil? cur) nil
+      :else
+      (let [next (map-fetch cur k)]
+        (if (seq more)
+          (recur next more)
+          next)))))
+
+(defn- connection-details [query context]
+  (or (path-value context [:database :details])
+      (path-value context [:details])
+      (path-value query [:database :details])
+      (path-value query [:details])))
+
+(defn- detail [details k default]
+  (or (path-value details [k]) default))
+
+(defn- sorted-keys [m]
+  (when (map? m)
+    (->> (keys m)
+         (map #(if (keyword? %) (name %) (str %)))
+         sort
+         vec)))
+
+(defn- normalize-method [value default-value]
+  (-> (cond
+        (keyword? value) (name value)
+        (string? value) value
+        (nil? value) default-value
+        :else (str value))
+      (str/trim)
+      (not-empty)
+      (or default-value)
+      str/lower-case))
+
+(defn- normalize-endpoint [value]
+  (let [s (cond
+            (keyword? value) (name value)
+            (string? value) value
+            (nil? value) nil
+            :else (str value))
+        trimmed (some-> s str/trim)]
+    (not-empty trimmed)))
+
+;; -------------------------------
 ;; Connection handling
 ;; -------------------------------
 
@@ -111,7 +175,7 @@
 
 (defmethod driver/can-connect? :http-echo
   [_ details]
-  (boolean (:endpoint details)))
+  (boolean (normalize-endpoint (detail details :endpoint nil))))
 
 ;; -------------------------------
 ;; Query Execution
@@ -120,13 +184,16 @@
 (defmethod driver/execute-reducible-query :http-echo
   [_ query context respond]
   (let [query-text (some-> query :native :query str/trim)
-        details (-> context :database :details)
-        endpoint (:endpoint details)
-        method (-> (get details :method "GET") str/lower-case)]
+        details (connection-details query context)
+        endpoint (normalize-endpoint (detail details :endpoint nil))
+        method (normalize-method (detail details :method nil) "GET")]
     (cond
       (not endpoint)
-      (do (log/warn "HTTP Echo: no endpoint configured." {:details details})
-          (respond-error respond "Missing endpoint in connection details."))
+      (do (log/warn "HTTP Echo: no endpoint configured."
+                    {:available-detail-keys (sorted-keys details)
+                     :context-keys (sorted-keys context)
+                     :query-keys (sorted-keys query)})
+          (respond-error respond "Missing endpoint in connection details. Provide it in the database settings."))
 
       (not (seq query-text))
       (respond-error respond "No query text provided.")
