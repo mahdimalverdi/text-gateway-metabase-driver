@@ -132,12 +132,13 @@
     (-> value keys sort vec)))
 
 (defn- respond-missing-endpoint [respond query]
-  (log/warn "HTTP Echo driver could not locate an API endpoint in the query payload"
-            {:top-level-keys (sortable-keys query)
-             :database-keys (-> query :database sortable-keys)
-             :database-details (-> query :database :details sortable-keys)
-             :database-details-string (-> query :database (get "details") sortable-keys)
-             :query-keys (-> query :native sortable-keys)})
+  (let [database (when (map? (:database query)) (:database query))]
+    (log/warn "HTTP Echo driver could not locate an API endpoint in the query payload"
+              {:top-level-keys (sortable-keys query)
+               :database-keys (sortable-keys database)
+               :database-details (some-> database :details sortable-keys)
+               :database-details-string (some-> database (get "details") sortable-keys)
+               :query-keys (some-> query :native sortable-keys)})))
   (respond (missing-endpoint-metadata)
            [["No API endpoint configured for the HTTP Echo driver. Provide it in the connection details."]]))
 
